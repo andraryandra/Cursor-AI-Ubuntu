@@ -3,6 +3,7 @@
 # ===================================================================
 # CURSOR AI IDE INSTALLER - COMPLETE & BULLETPROOF VERSION
 # No bullshit, no bugs, just works!
+# Enhanced with UPDATE feature
 # ===================================================================
 
 set -e  # Exit on any error
@@ -74,6 +75,134 @@ check_root() {
     fi
 }
 
+# ============================================================
+# NEW UPDATE FUNCTION - TAMBAHAN FITUR BARU
+# ============================================================
+
+# --- Update Cursor Function ---
+update_cursor() {
+    print_header "CURSOR UPDATE MODE"
+    
+    # Check if Cursor is installed
+    if [ ! -d "$CURSOR_EXTRACT_DIR" ] || [ ! -f "$EXECUTABLE_PATH" ]; then
+        print_error "Cursor AI IDE is not installed yet!"
+        print_info "Please install Cursor first before updating."
+        return 1
+    fi
+    
+    print_success "Cursor AI IDE detected - ready for update"
+    print_info "Current installation: $CURSOR_EXTRACT_DIR"
+    echo ""
+    
+    print_step "Update will replace current Cursor with latest version"
+    print_info "All system settings will be preserved (shortcuts, commands)"
+    echo ""
+    
+    read -p "Continue with update? (y/N): " confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        print_info "Update cancelled"
+        return 0
+    fi
+    
+    echo ""
+    print_step "Starting Cursor update process..."
+    
+    # Check dependencies
+    install_dependencies
+    
+    # Get AppImage for update
+    print_step "Getting AppImage for update..."
+    local appimage_path
+    appimage_path=$(get_update_appimage)
+    local get_result=$?
+    
+    # Detailed debugging
+    print_step "Debug: get_result=$get_result"
+    print_step "Debug: appimage_path='$appimage_path'"
+    print_step "Debug: file check: $([ -f "$appimage_path" ] && echo "EXISTS" || echo "NOT FOUND")"
+    
+    if [ $get_result -ne 0 ]; then
+        print_error "get_update_appimage() returned error code: $get_result"
+        return 1
+    fi
+    
+    if [ -z "$appimage_path" ]; then
+        print_error "AppImage path is empty"
+        return 1
+    fi
+    
+    if [ ! -f "$appimage_path" ]; then
+        print_error "AppImage file does not exist: '$appimage_path'"
+        return 1
+    fi
+    
+    print_success "Using AppImage: $(basename "$appimage_path")"
+    print_info "File size: $(du -h "$appimage_path" | cut -f1)"
+    
+    # Process and install
+    process_appimage "$appimage_path"
+    install_to_system
+    
+    print_success "UPDATE COMPLETED SUCCESSFULLY!"
+    print_info "Cursor AI IDE has been updated to the latest version"
+    print_info "You can now use: cursor"
+    echo ""
+}
+
+# --- Get AppImage for Update (simplified) ---
+get_update_appimage() {
+    print_step "Getting AppImage for update..." >&2
+    
+    # Strategy 1: Check local files first
+    local local_files=($(ls -t *[Cc]ursor*.AppImage 2>/dev/null))
+    
+    if [ ${#local_files[@]} -gt 0 ]; then
+        local newest_file="${local_files[0]}"
+        local file_age_days=$(( ($(date +%s) - $(stat -c %Y "$newest_file")) / 86400 ))
+        
+        if [ "$file_age_days" -le 7 ]; then
+            print_success "Using local file: $newest_file (${file_age_days} days old)" >&2
+            echo "$(pwd)/$newest_file"
+            return 0
+        else
+            print_info "Local file is older than 7 days, downloading latest..." >&2
+        fi
+    fi
+    
+    # Strategy 2: Download latest
+    print_step "Downloading latest Cursor for update..." >&2
+    local downloaded_file
+    downloaded_file=$(download_cursor)
+    local download_result=$?
+    
+    # Debug info
+    print_step "Debug: download_result=$download_result" >&2
+    print_step "Debug: downloaded_file='$downloaded_file'" >&2
+    print_step "Debug: file exists check: $([ -f "$downloaded_file" ] && echo "YES" || echo "NO")" >&2
+    
+    if [ $download_result -eq 0 ] && [ -n "$downloaded_file" ] && [ -f "$downloaded_file" ]; then
+        print_success "Downloaded latest version: $(basename "$downloaded_file")" >&2
+        echo "$downloaded_file"
+        return 0
+    else
+        print_warning "Download process failed or returned invalid file" >&2
+    fi
+    
+    # Strategy 3: Fallback to local if download failed
+    if [ ${#local_files[@]} -gt 0 ]; then
+        print_warning "Download failed, using local file: ${local_files[0]}" >&2
+        echo "$(pwd)/${local_files[0]}"
+        return 0
+    fi
+    
+    print_error "No AppImage available for update" >&2
+    return 1
+}
+
+# ============================================================
+# ORIGINAL FUNCTIONS - TIDAK DIUBAH
+# ============================================================
+
 # --- Install Dependencies ---
 install_dependencies() {
     print_step "Checking dependencies..."
@@ -103,7 +232,7 @@ install_dependencies() {
 
 # --- Download Latest Cursor ---
 download_cursor() {
-    print_step "Downloading latest Cursor AppImage..."
+    print_step "Downloading latest Cursor AppImage..." >&2
     
     local api_url="https://www.cursor.com/api/download?platform=linux-x64&releaseTrack=stable"
     local user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
@@ -111,35 +240,37 @@ download_cursor() {
     
     mkdir -p "$TEMP_DIR"
     
-    print_step "Getting download URL from Cursor API..."
+    print_step "Getting download URL from Cursor API..." >&2
     local final_url
     final_url=$(curl -sL -A "$user_agent" "$api_url" | jq -r '.url // .downloadUrl // empty')
     
     if [ -z "$final_url" ]; then
-        print_error "Failed to get download URL from Cursor API"
-        print_info "Trying direct download..."
+        print_error "Failed to get download URL from Cursor API" >&2
+        print_info "Trying direct download..." >&2
         final_url="https://downloader.cursor.sh/linux/appImage/x64"
     fi
     
-    print_info "Download URL: $final_url"
-    print_info "File size: ~250-300 MB"
-    print_info "Estimated time: 2-10 minutes (depending on internet speed)"
+    print_info "Download URL: $final_url" >&2
+    print_info "File size: ~250-300 MB" >&2
+    print_info "Estimated time: 2-10 minutes (depending on internet speed)" >&2
     
-    echo ""
-    echo "┌─────────────────────────────────────────────────────────────┐"
-    echo "│                    DOWNLOAD PROGRESS                        │"
-    echo "└─────────────────────────────────────────────────────────────┘"
+    echo "" >&2
+    echo "┌─────────────────────────────────────────────────────────────┐" >&2
+    echo "│                    DOWNLOAD PROGRESS                        │" >&2
+    echo "└─────────────────────────────────────────────────────────────┘" >&2
     
-    if wget --progress=bar:force:noscroll --timeout=30 --tries=3 -O "$download_path" "$final_url"; then
+    if wget --progress=bar:force:noscroll --timeout=30 --tries=3 -O "$download_path" "$final_url" >&2; then
         if [ -s "$download_path" ]; then
-            print_success "Download completed!"
+            print_success "Download completed!" >&2
+            # Return ONLY the file path, nothing else
             echo "$download_path"
+            return 0
         else
-            print_error "Downloaded file is empty or corrupted"
+            print_error "Downloaded file is empty or corrupted" >&2
             return 1
         fi
     else
-        print_error "Download failed"
+        print_error "Download failed" >&2
         return 1
     fi
 }
@@ -492,24 +623,36 @@ install_to_system() {
 setup_icon() {
     print_step "Setting up application icon..."
     
-    local icon_url="https://raw.githubusercontent.com/hieutt192/Cursor-ubuntu/main/images/cursor-icon.png"
+    # Strategy 1: Check for cursor.png in current directory
+    local current_dir_icon="$(pwd)/cursor.png"
+    if [ -f "$current_dir_icon" ]; then
+        print_success "Found cursor.png in current directory"
+        sudo cp "$current_dir_icon" "$ICON_PATH"
+        sudo chmod 644 "$ICON_PATH"
+        print_success "Using local cursor.png as icon"
+        return 0
+    fi
     
-    # Try to download official icon
-    if sudo curl -sL --connect-timeout 10 "$icon_url" -o "$ICON_PATH" 2>/dev/null; then
-        print_success "Downloaded official icon"
+    # Strategy 2: Look for any cursor icon in current directory
+    local local_icons=($(ls cursor*.png cursor*.svg 2>/dev/null))
+    if [ ${#local_icons[@]} -gt 0 ]; then
+        print_success "Found local icon: ${local_icons[0]}"
+        sudo cp "${local_icons[0]}" "$ICON_PATH"
+        sudo chmod 644 "$ICON_PATH"
+        print_info "Using local icon: $(basename "${local_icons[0]}")"
+        return 0
+    fi
+    
+    # Strategy 3: Find any PNG icon in the extracted Cursor files
+    local fallback_icon
+    fallback_icon=$(find "$CURSOR_EXTRACT_DIR" -name "*.png" -type f | head -1)
+    
+    if [ -n "$fallback_icon" ]; then
+        sudo cp "$fallback_icon" "$ICON_PATH"
+        sudo chmod 644 "$ICON_PATH"
+        print_info "Using fallback icon: $(basename "$fallback_icon")"
     else
-        print_warning "Failed to download official icon, using fallback"
-        
-        # Find any PNG icon in the extracted files
-        local fallback_icon
-        fallback_icon=$(find "$CURSOR_EXTRACT_DIR" -name "*.png" -type f | head -1)
-        
-        if [ -n "$fallback_icon" ]; then
-            sudo cp "$fallback_icon" "$ICON_PATH"
-            print_info "Using fallback icon: $(basename "$fallback_icon")"
-        else
-            print_warning "No icon found - desktop entry will use default"
-        fi
+        print_warning "No icon found - desktop entry will use default system icon"
     fi
 }
 
@@ -666,6 +809,10 @@ show_usage() {
     echo ""
 }
 
+# ============================================================
+# MODIFIED MAIN FUNCTION - TAMBAH PILIHAN UPDATE
+# ============================================================
+
 # --- Main Installation Function ---
 main() {
     # Clear screen and show header
@@ -682,26 +829,63 @@ main() {
     echo "                           ( o.o )"
     echo "                            > ^ <"
     echo ""
-    print_info "This installer will set up Cursor AI IDE on your system"
-    print_info "You will need sudo privileges for system installation"
-    echo ""
     
-    # Confirm installation
-    read -p "Do you want to continue with the installation? (y/N): " confirm
-    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
-        print_info "Installation cancelled by user"
-        exit 0
+    # Check if already installed and show menu
+    if [ -d "$CURSOR_EXTRACT_DIR" ] && [ -f "$EXECUTABLE_PATH" ]; then
+        print_success "Cursor AI IDE is already installed"
+        print_info "Installation location: $CURSOR_EXTRACT_DIR"
+        echo ""
+        echo "What would you like to do?"
+        echo ""
+        echo "1. 🔄 UPDATE Cursor to latest version"
+        echo "2. 🆕 REINSTALL Cursor (fresh installation)"
+        echo "3. ❌ EXIT"
+        echo ""
+        
+        while true; do
+            read -p "Choose option (1-3): " choice
+            case "$choice" in
+                1)
+                    print_info "Starting UPDATE mode..."
+                    update_cursor
+                    return $?
+                    ;;
+                2)
+                    print_info "Starting REINSTALL mode..."
+                    break
+                    ;;
+                3)
+                    print_info "Goodbye! 👋"
+                    exit 0
+                    ;;
+                *)
+                    print_error "Invalid choice. Please enter 1, 2, or 3."
+                    continue
+                    ;;
+            esac
+        done
+    else
+        print_info "This installer will set up Cursor AI IDE on your system"
+        print_info "You will need sudo privileges for system installation"
+        echo ""
+        
+        # Confirm installation
+        read -p "Do you want to continue with the installation? (y/N): " confirm
+        if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+            print_info "Installation cancelled by user"
+            exit 0
+        fi
     fi
     
     # Check if running as root
     check_root
     
-    # Check if already installed
+    # For reinstall mode, confirm one more time
     if [ -d "$CURSOR_EXTRACT_DIR" ] && [ -f "$EXECUTABLE_PATH" ]; then
-        print_warning "Cursor AI IDE appears to be already installed"
-        read -p "Do you want to reinstall/update? (y/N): " reinstall
+        print_warning "This will completely remove and reinstall Cursor AI IDE"
+        read -p "Are you sure you want to continue? (y/N): " reinstall
         if [[ ! "$reinstall" =~ ^[Yy]$ ]]; then
-            print_info "Installation cancelled"
+            print_info "Reinstallation cancelled"
             exit 0
         fi
     fi
@@ -764,6 +948,8 @@ main() {
     show_usage
     
     print_success "INSTALLATION COMPLETED SUCCESSFULLY!"
+    echo ""
+    print_info "💡 To update Cursor in the future, just run this script again!"
     echo ""
 }
 
